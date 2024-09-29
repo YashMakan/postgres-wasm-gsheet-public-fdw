@@ -45,29 +45,30 @@ impl Guest for ExampleFdw {
     fn init(ctx: &Context) -> FdwResult {
         Self::init_instance();
         let this = Self::this_mut();
-    
+
         // get API URL from foreign server options if it is specified
         let opts = ctx.get_options(OptionsType::Server);
         this.base_url = opts.require_or("base_url", "https://docs.google.com/spreadsheets/d");
-    
+
         Ok(())
     }
 
+
     fn begin_scan(ctx: &Context) -> FdwResult {
         let this = Self::this_mut();
-    
+
         // get sheet id from foreign table options and make the request URL
         let opts = ctx.get_options(OptionsType::Table);
         let sheet_id = opts.require("sheet_id")?;
         let url = format!("{}/{}/gviz/tq?tqx=out:json", this.base_url, sheet_id);
-    
+
         // make up request headers
         let headers: Vec<(String, String)> = vec![
             ("user-agent".to_owned(), "Sheets FDW".to_owned()),
             // header to make JSON response more cleaner
             ("x-datasource-auth".to_owned(), "true".to_owned()),
         ];
-    
+
         // make a request to Google API and parse response as JSON
         let req = http::Request {
             method: http::Method::Get,
@@ -79,30 +80,31 @@ impl Guest for ExampleFdw {
         // remove invalid prefix from response to make a valid JSON string
         let body = resp.body.strip_prefix(")]}'\n").ok_or("invalid response")?;
         let resp_json: JsonValue = serde_json::from_str(body).map_err(|e| e.to_string())?;
-    
+
         // extract source rows from response
         this.src_rows = resp_json
             .pointer("/table/rows")
             .ok_or("cannot get rows from response")
             .map(|v| v.as_array().unwrap().to_owned())?;
-    
+
         // output a Postgres INFO to user (visible in psql), also useful for debugging
         utils::report_info(&format!(
             "We got response array length: {}",
             this.src_rows.len()
         ));
-    
+
         Ok(())
     }
 
+
     fn iter_scan(ctx: &Context, row: &Row) -> Result<Option<u32>, FdwError> {
         let this = Self::this_mut();
-    
+
         // if all source rows are consumed, stop data scan
         if this.src_idx >= this.src_rows.len() {
             return Ok(None);
         }
-    
+
         // extract current source row, an example of the source row in JSON:
         // {
         //   "c": [{
@@ -114,7 +116,7 @@ impl Guest for ExampleFdw {
         //    ]
         // }
         let src_row = &this.src_rows[this.src_idx];
-    
+
         // loop through each target column, map source cell to target cell
         for tgt_col in ctx.get_columns() {
             let (tgt_col_num, tgt_col_name) = (tgt_col.num(), tgt_col.name());
@@ -131,17 +133,17 @@ impl Guest for ExampleFdw {
                         ));
                     }
                 };
-    
+
                 // push the cell to target row
                 row.push(cell.as_ref());
             } else {
                 row.push(None);
             }
         }
-    
+
         // advance to next source row
         this.src_idx += 1;
-    
+
         // tell Postgres we've done one row, and need to scan the next row
         Ok(Some(0))
     }
