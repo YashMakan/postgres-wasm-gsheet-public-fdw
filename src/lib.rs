@@ -60,8 +60,17 @@ impl Guest for ExampleFdw {
         // get sheet id from foreign table options and make the request URL
         let opts = ctx.get_options(OptionsType::Table);
         let sheet_id = opts.require("sheet_id")?;
-        let url = format!("{}/{}/gviz/tq?tqx=out:json", this.base_url, sheet_id);
 
+        // get LIMIT and OFFSET from the query context
+        let limit = ctx.get_limit().unwrap_or(100);  // Default limit to 100 rows if not provided
+        let offset = ctx.get_offset().unwrap_or(0);  // Default offset to 0 if not provided
+    
+        // Add pagination parameters to the URL (if supported by the API)
+        let url = format!(
+            "{}/{}/gviz/tq?tqx=out:json&limit={}&offset={}", 
+            this.base_url, sheet_id, limit, offset
+        );
+    
         // make up request headers
         let headers: Vec<(String, String)> = vec![
             ("user-agent".to_owned(), "Sheets FDW".to_owned()),
